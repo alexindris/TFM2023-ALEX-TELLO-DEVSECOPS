@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Parameter Initialization
+echo "<--Parameter Initialization-->"
+echo "The current parameters are:"
+echo "Scan Type: ${SCAN_TYPE}"
+echo "Target: ${TARGET}"
+
+# Pulling up last OWASP ZAP container
+echo "Pulling up last OWASP ZAP container --> Start"
+docker pull owasp/zap2docker-stable
+echo "Pulling up last VMS container --> End"
+echo "Starting container --> Start"
+docker run -dt --name owasp owasp/zap2docker-stable /bin/bash
+
+docker exec owasp mkdir /zap/wrk
+
+# Scanning target on OWASP container
+echo "----> scan_type: ${SCAN_TYPE}"
+if [ "${SCAN_TYPE}" = "Baseline" ]; then
+    docker exec owasp zap-baseline.py -t ${TARGET} -J report.json -I
+elif [ "${SCAN_TYPE}" = "APIS" ]; then
+    docker exec owasp zap-api-scan.py -t ${TARGET} -J report.json -I
+elif [ "${SCAN_TYPE}" = "Full" ]; then
+    docker exec owasp zap-full-scan.py -t ${TARGET} -J report.json -I
+else
+    echo "Invalid scan type specified"
+    exit 1
+fi
+
+# Copy Report to Workspace
+echo ${WORKSPACE}
+docker cp owasp:/zap/wrk/report.json "${WORKSPACE}/report.json"
+
+# Removing container
+docker stop owasp
+docker rm owasp
+
+# Determine if an error should be thrown based on warnings in the ZAP report
+warn=$(grep -o '"riskcode": "[1-9]"' "${WORKSPACE}/report.json" | wc -l)
+if [ "$warn" -gt 0 ]; then
+    echo "Build failed due to ZAP warnings"
+    exit 1
+fi
